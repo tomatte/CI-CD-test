@@ -14,3 +14,7 @@ function hello2() {
 function hello3() {
     echo "hello2";
 }
+
+function hello4() {
+    echo "hello2";
+}
