@@ -1,5 +1,5 @@
 <?php
-echo "hi friens\n";
+
 
 
 function hello() {
@@ -18,3 +18,5 @@ function hello3() {
 function hello4() {
     echo "hello2";
 }
+
+echo "hi friens\n";
