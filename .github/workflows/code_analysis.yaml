@@ -4,14 +4,15 @@ on:
   pull_request:
     paths:
       - '**.php'
-  repository_dispatch:
-    types: [fix-psr12]
+
+permissions:
+  pull-requests: write
+  contents: write
 
 jobs:
   phpcs:
-    name: PHP CodeSniffer Check
+    name: PHP CodeSniffer
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
     
     steps:
       - name: Checkout code
@@ -31,99 +32,125 @@ jobs:
       - name: Run PHP_CodeSniffer
         id: phpcs
         run: |
-          vendor/bin/phpcs --standard=PSR12 --extensions=php --ignore=*/vendor/* --report=full . > phpcs_output.txt || true
+          vendor/bin/phpcs --standard=PSR12 --extensions=php --ignore=*/vendor/* --report=full . > phpcs_output.txt || echo "PHPCS_FOUND_ISSUES=true" >> $GITHUB_ENV
+          cat phpcs_output.txt
           
-      - name: Create comment with results
-        uses: actions/github-script@v6
+      - name: Check for auto-fixable issues
+        if: env.PHPCS_FOUND_ISSUES == 'true'
+        run: |
+          echo "Found PSR-12 issues. Creating summary..."
+          echo "## :warning: PHP CodeSniffer Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "This pull request has PSR-12 coding standard violations:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat phpcs_output.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          
+      - name: Comment on PR
+        uses: marocchino/sticky-pull-request-comment@v2
+        if: env.PHPCS_FOUND_ISSUES == 'true'
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const fs = require('fs');
-            const phpcsOutput = fs.readFileSync('phpcs_output.txt', 'utf8');
+          header: phpcs
+          message: |
+            ## PHP CodeSniffer Results
             
-            // Check if there are any errors
-            if (phpcsOutput.includes('FOUND')) {
-              // Create a comment with the results and a "fix" button
-              let comment = '## PHP CodeSniffer Results\n\n';
-              comment += 'This pull request has PSR-12 coding standard violations that should be fixed:\n\n';
-              comment += '```\n' + phpcsOutput + '\n```\n\n';
-              comment += '### Actions\n\n';
-              comment += '- [Click here to automatically fix these issues](https://api.github.com/repos/${{ github.repository }}/dispatches)';
-              comment += ' (Note: You\'ll need to copy this payload into the request body with your personal access token (PAT))\n\n';
-              comment += '```json\n';
-              comment += '{\n';
-              comment += '  "event_type": "fix-psr12",\n';
-              comment += '  "client_payload": {\n';
-              comment += '    "pr_number": ' + context.issue.number + ',\n';
-              comment += '    "ref": "${{ github.event.pull_request.head.ref }}",\n';
-              comment += '    "repository": "${{ github.event.pull_request.head.repo.full_name }}"\n';
-              comment += '  }\n';
-              comment += '}\n';
-              comment += '```\n\n';
-              comment += 'Or you can manually fix these issues by running:\n\n';
-              comment += '```bash\n';
-              comment += 'vendor/bin/phpcbf --standard=PSR12 --extensions=php --ignore=*/vendor/* .\n';
-              comment += '```\n';
-              
-              github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: comment
-              });
-            } else {
-              github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: '## PHP CodeSniffer Results\n\n✅ Great job! No PSR-12 issues found in this pull request.'
-              });
-            }
-
-  fix-psr12:
-    name: Fix PSR-12 Issues
-    runs-on: ubuntu-latest
-    if: github.event_name == 'repository_dispatch' && github.event.action == 'fix-psr12'
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ github.event.client_payload.repository }}
-          ref: ${{ github.event.client_payload.ref }}
-          
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.1'
-          tools: composer:v2
-          coverage: none
-          
-      - name: Install PHP_CodeSniffer
+            This pull request has PSR-12 coding standard violations that should be fixed.
+            
+            <details>
+            <summary>View details</summary>
+            
+            ```
+            $(cat phpcs_output.txt)
+            ```
+            </details>
+            
+            ### How to fix these issues
+            
+            You can run this command locally to automatically fix the issues:
+            
+            ```bash
+            vendor/bin/phpcbf --standard=PSR12 --extensions=php --ignore=*/vendor/* .
+            ```
+            
+            Or click the button below to have the workflow fix the issues automatically:
+            
+            [Fix PSR-12 Issues](https://github.com/${{ github.repository }}/actions/workflows/fix-psr12.yml/dispatch)
+            
+      - name: Create "Fix PSR-12 Issues" workflow if not exists
+        if: env.PHPCS_FOUND_ISSUES == 'true'
         run: |
-          composer require --dev squizlabs/php_codesniffer
+          mkdir -p .github/workflows
+          cat > .github/workflows/fix-psr12.yml << 'EOL'
+          name: Fix PSR-12 Issues
           
-      - name: Fix PSR-12 issues
-        run: |
-          vendor/bin/phpcbf --standard=PSR12 --extensions=php --ignore=*/vendor/* .
+          on:
+            workflow_dispatch:
+              inputs:
+                pr_number:
+                  description: 'PR number to fix'
+                  required: true
+                  default: '${{ github.event.pull_request.number }}'
           
-      - name: Commit changes
-        run: |
+          permissions:
+            contents: write
+            pull-requests: write
+          
+          jobs:
+            fix:
+              runs-on: ubuntu-latest
+              steps:
+                - name: Checkout code
+                  uses: actions/checkout@v3
+                  with:
+                    ref: ${{ github.event.pull_request.head.ref }}
+                    repository: ${{ github.event.pull_request.head.repo.full_name }}
+                
+                - name: Setup PHP
+                  uses: shivammathur/setup-php@v2
+                  with:
+                    php-version: '8.1'
+                    tools: composer:v2
+                    coverage: none
+                
+                - name: Install PHP_CodeSniffer
+                  run: |
+                    composer require --dev squizlabs/php_codesniffer
+                
+                - name: Fix PSR-12 issues
+                  run: |
+                    vendor/bin/phpcbf --standard=PSR12 --extensions=php --ignore=*/vendor/* .
+                
+                - name: Commit changes
+                  run: |
+                    git config --local user.email "action@github.com"
+                    git config --local user.name "GitHub Action"
+                    git add .
+                    git diff --cached --quiet || git commit -m "Fix PSR-12 coding standards"
+                    git push
+                
+                - name: Comment on PR
+                  uses: marocchino/sticky-pull-request-comment@v2
+                  with:
+                    header: phpcs-fixed
+                    message: |
+                      ## ✅ PSR-12 issues fixed!
+                      
+                      The coding standard issues have been automatically fixed and committed to this pull request.
+          EOL
+          
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add .
-          git commit -m "Fix PSR-12 coding standards" || echo "No changes to commit"
-          git push
+          git add .github/workflows/fix-psr12.yml
+          git diff --cached --quiet || git commit -m "Add workflow to fix PSR-12 issues"
+          git push || echo "Could not push fix-psr12 workflow. It might already exist or you don't have permission to push directly to this branch."
           
-      - name: Add follow-up comment
-        uses: actions/github-script@v6
+      - name: Comment on PR if no issues
+        uses: marocchino/sticky-pull-request-comment@v2
+        if: env.PHPCS_FOUND_ISSUES != 'true'
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            github.rest.issues.createComment({
-              issue_number: ${{ github.event.client_payload.pr_number }},
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: '✅ PSR-12 issues automatically fixed! The changes have been committed to this pull request.'
-            });
+          header: phpcs
+          message: |
+            ## ✅ PHP CodeSniffer Results
+            
+            Great job! No PSR-12 issues found in this pull request.
