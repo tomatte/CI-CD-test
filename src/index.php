@@ -1,12 +1,11 @@
 <?php
 
-
-
 function hello() {
     echo "hello";
 }
 
-function hello2() {
+function hello2() 
+{
     echo "hello2";
 }
 
