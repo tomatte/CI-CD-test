@@ -1,0 +1,15 @@
+{
+    "name": "daniel.reboucas/ci-cd-test",
+    "autoload": {
+        "psr-4": {
+            "DanielReboucas\\CiCdTest\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Daniel",
+            "email": "daniel.reboucas@loft.com.br"
+        }
+    ],
+    "require": {}
+}
