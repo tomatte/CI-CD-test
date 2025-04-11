@@ -33,7 +33,9 @@ jobs:
         id: phpcs
         run: |
           vendor/bin/phpcs --standard=PSR12 --extensions=php --ignore=*/vendor/* --report=full . > phpcs_output.txt || echo "PHPCS_FOUND_ISSUES=true" >> $GITHUB_ENV
-          cat phpcs_output.txt
+          echo "PHPCS_OUTPUT<<EOF" >> $GITHUB_ENV
+          cat phpcs_output.txt >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
           
       - name: Check for auto-fixable issues
         if: env.PHPCS_FOUND_ISSUES == 'true'
@@ -61,7 +63,7 @@ jobs:
             <summary>View details</summary>
             
             ```
-            $(cat phpcs_output.txt)
+            ${{ env.PHPCS_OUTPUT }}
             ```
             </details>
             
@@ -75,7 +77,7 @@ jobs:
             
             Or click the button below to have the workflow fix the issues automatically:
             
-            [Fix PSR-12 Issues](https://github.com/${{ github.repository }}/actions/workflows/fix-psr12.yml/dispatch)
+            [Fix PSR-12 Issues](https://github.com/${{ github.repository }}/actions/workflows/fix-psr12.yml)
             
       - name: Create "Fix PSR-12 Issues" workflow if not exists
         if: env.PHPCS_FOUND_ISSUES == 'true'
@@ -86,11 +88,6 @@ jobs:
           
           on:
             workflow_dispatch:
-              inputs:
-                pr_number:
-                  description: 'PR number to fix'
-                  required: true
-                  default: '${{ github.event.pull_request.number }}'
           
           permissions:
             contents: write
@@ -105,6 +102,7 @@ jobs:
                   with:
                     ref: ${{ github.event.pull_request.head.ref }}
                     repository: ${{ github.event.pull_request.head.repo.full_name }}
+                    token: ${{ secrets.GITHUB_TOKEN }}
                 
                 - name: Setup PHP
                   uses: shivammathur/setup-php@v2
@@ -130,13 +128,26 @@ jobs:
                     git push
                 
                 - name: Comment on PR
-                  uses: marocchino/sticky-pull-request-comment@v2
+                  uses: actions/github-script@v6
                   with:
-                    header: phpcs-fixed
-                    message: |
-                      ## ✅ PSR-12 issues fixed!
+                    script: |
+                      const pullRequests = await github.rest.pulls.list({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        state: 'open',
+                        head: '${{ github.event.pull_request.head.ref }}'
+                      });
                       
-                      The coding standard issues have been automatically fixed and committed to this pull request.
+                      if (pullRequests.data.length > 0) {
+                        const prNumber = pullRequests.data[0].number;
+                        
+                        await github.rest.issues.createComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: prNumber,
+                          body: '## ✅ PSR-12 issues fixed!\n\nThe coding standard issues have been automatically fixed and committed to this pull request.'
+                        });
+                      }
           EOL
           
           git config --local user.email "action@github.com"
