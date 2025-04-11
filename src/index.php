@@ -19,4 +19,9 @@ function hello4() {
     echo "hello2";
 }
 
+function hello5() {
+    echo "hello2";
+}
+
+
 echo "hi friens\n";
